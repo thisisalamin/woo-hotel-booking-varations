@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) {
 // Include necessary files
 require_once plugin_dir_path(__FILE__) . 'includes/template-hook-fixer.php';
 require_once plugin_dir_path(__FILE__) . 'includes/frontend-display.php';
+require_once plugin_dir_path(__FILE__) . 'includes/variation-support.php';
 
 class WC_Hotel_Booking_Variations {
     public function __construct() {
@@ -26,8 +27,8 @@ class WC_Hotel_Booking_Variations {
         add_action('woocommerce_before_booking_form', [$this, 'add_variation_field']);
         
         // Admin product management
-        add_filter('woocommerce_product_supports', [$this, 'add_variation_support_to_booking'], 20, 3);
-        add_action('woocommerce_product_options_general_product_data', [$this, 'add_variable_option']);
+        add_filter('product_type_options', [$this, 'add_variable_product_type_option']);
+        add_filter('woocommerce_product_data_tabs', [$this, 'add_variations_tab_for_booking']);
         add_action('woocommerce_process_product_meta_booking', [$this, 'save_variable_option']);
         
         // Availability checking
@@ -35,6 +36,7 @@ class WC_Hotel_Booking_Variations {
         
         // Enqueue scripts and styles
         add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
     }
     
     public function setup() {
@@ -62,6 +64,19 @@ class WC_Hotel_Booking_Variations {
             wp_enqueue_script(
                 'wc-hotel-booking',
                 plugins_url('assets/js/hotel-booking.js', __FILE__),
+                array('jquery'),
+                '1.0',
+                true
+            );
+        }
+    }
+
+    public function enqueue_admin_scripts() {
+        $screen = get_current_screen();
+        if ($screen && ($screen->id === 'product' || $screen->id === 'edit-product')) {
+            wp_enqueue_script(
+                'wc-hotel-booking-admin',
+                plugins_url('assets/js/hotel-booking-admin.js', __FILE__),
                 array('jquery'),
                 '1.0',
                 true
@@ -129,39 +144,52 @@ class WC_Hotel_Booking_Variations {
         return $passed;
     }
 
+    public function add_variable_product_type_option($options) {
+        $options['variable_booking'] = array(
+            'id'            => '_variable_booking',
+            'wrapper_class' => 'show_if_booking',
+            'label'         => __('Variable booking', 'woocommerce-bookings'),
+            'description'   => __('Enable this to create booking product variations.', 'woocommerce-bookings'),
+            'default'       => 'no'
+        );
+        
+        return $options;
+    }
+    
+    public function add_variations_tab_for_booking($tabs) {
+        // Make sure variations tab shows for booking products with variable option enabled
+        $tabs['variations']['class'][] = 'show_if_variable_booking';
+        
+        return $tabs;
+    }
+
     public function add_variation_support_to_booking($support, $feature, $product) {
         if (!$product || !$product->is_type('booking')) {
             return $support;
         }
 
-        // Enable variation support for booking products
-        if ($feature === 'ajax_add_to_cart') {
-            return false;
-        }
-
-        if (in_array($feature, array('variations', 'variable'))) {
-            return $product->get_meta('_has_variables') === 'yes';
+        // Only if the product is set to be variable
+        if ($product->get_meta('_variable_booking') === 'yes') {
+            // Enable variation support for booking products
+            if (in_array($feature, array('variations', 'variable'))) {
+                return true;
+            }
+            
+            // Disable ajax_add_to_cart for variable booking products
+            if ($feature === 'ajax_add_to_cart') {
+                return false;
+            }
         }
 
         return $support;
     }
 
-    public function add_variable_option() {
-        global $post;
-        
-        $product = wc_get_product($post->ID);
-        if ($product && $product->is_type('booking')) {
-            woocommerce_wp_checkbox([
-                'id' => '_has_variables',
-                'label' => __('Has variations', 'woocommerce'),
-                'description' => __('Enable this to create different variations of this booking', 'woocommerce')
-            ]);
-        }
-    }
-
     public function save_variable_option($post_id) {
-        $has_variables = isset($_POST['_has_variables']) ? 'yes' : 'no';
-        update_post_meta($post_id, '_has_variables', $has_variables);
+        $variable_booking = isset($_POST['_variable_booking']) ? 'yes' : 'no';
+        update_post_meta($post_id, '_variable_booking', $variable_booking);
+        
+        // Ensure backwards compatibility with the old option
+        update_post_meta($post_id, '_has_variables', $variable_booking);
     }
 
     public function check_variation_availability($bookable, $date, $resource_id, $booking_form) {
@@ -211,4 +239,8 @@ class WC_Hotel_Booking_Variations {
     }
 }
 
-new WC_Hotel_Booking_Variations();
+// Initialize the plugin
+$wc_hotel_booking_variations = new WC_Hotel_Booking_Variations();
+
+// Add product supports filter with high priority to override WC Bookings
+add_filter('woocommerce_product_supports', array($wc_hotel_booking_variations, 'add_variation_support_to_booking'), 99, 3);

@@ -1,0 +1,17 @@
+# Ignore WordPress core files
+/wp-admin/
+/wp-includes/
+
+# Ignore all plugins except this one
+/wp-content/plugins/*
+!/wp-content/plugins/hotel-booking-variations/
+
+# Ignore all themes
+/wp-content/themes/
+
+# Ignore uploads
+/wp-content/uploads/
+
+# Ignore WordPress config and other sensitive files
+wp-config.php
+.htaccess

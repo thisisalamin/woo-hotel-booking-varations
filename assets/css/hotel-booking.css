@@ -1,0 +1,87 @@
+/* Super aggressive form hiding */
+.wc-bookings-booking-form,
+.wc-bookings-booking-form-wrapper,
+.wc-booking-summary,
+.wc_bookings_field_start_date,
+.wc_bookings_field_duration,
+.wc-bookings-date-picker,
+.booking-form-wrapper {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    transition: none !important;
+    position: absolute !important;
+    left: -9999px !important;
+}
+
+/* Only show when moved to our container */
+#booking-form-container .wc-bookings-booking-form {
+    display: block !important;
+    visibility: visible !important;
+    height: auto !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    left: auto !important;
+    margin-top: 30px !important;
+    padding: 20px !important;
+    border: 1px solid #ddd !important;
+    background: #fff !important;
+}
+
+/* Super aggressive visibility for variations */
+.variations_form,
+.variations,
+.variations tbody,
+.variations tr,
+.variations td,
+.variations select {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Variation selection notice */
+.variation-selection-notice {
+    background: #f8f9fa !important;
+    padding: 15px !important;
+    margin-bottom: 20px !important;
+    border-left: 4px solid #007bff !important;
+}
+
+/* Notice when booking form is shown */
+#booking-form-container:before {
+    content: "Select your dates below:" !important;
+    display: block !important;
+    margin-bottom: 15px !important;
+    font-weight: bold !important;
+    color: #333 !important;
+}
+
+.wc-bookings-booking-form {
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+    margin-top: 20px;
+    padding: 20px;
+    border: 1px solid #ddd;
+    background: #fff;
+}
+
+.wc-bookings-booking-form.visible {
+    opacity: 1;
+}
+
+.booking-slots {
+    margin-top: 15px;
+}
+
+.wc-bookings-not-available-message {
+    color: #721c24;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+}

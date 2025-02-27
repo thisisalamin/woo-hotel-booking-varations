@@ -1,37 +1,53 @@
-jQuery(document).ready(function($) {
-    // Function to toggle variation options visibility
-    function toggleVariationOptions() {
-        var isBooking = $('#product-type').val() === 'booking';
-        var hasVariations = $('#_variable_booking').is(':checked');
+/**
+ * Hotel Booking Variations admin JavaScript
+ */
+(function($) {
+    'use strict';
+    
+    $(document).ready(function() {
+        // Toggle variation fields when product type changes
+        $('select#product-type').on('change', function() {
+            toggleVariableBookingFields();
+        });
         
-        // Show variations tab if booking with variations
-        if (isBooking && hasVariations) {
-            $('.show_if_variable.variations_tab').show();
-            $('.variations_options').show();
-        } else {
-            $('.show_if_variable.variations_tab').hide();
-            $('.variations_options').hide();
+        // Initialize on page load
+        toggleVariableBookingFields();
+        
+        function toggleVariableBookingFields() {
+            const productType = $('select#product-type').val();
+            
+            if (productType === 'booking') {
+                // Show variable booking option
+                $('#_variable_booking').closest('label').show();
+                
+                // Show or hide variations tab based on variable booking setting
+                if ($('#_variable_booking').is(':checked')) {
+                    $('#inventory_product_data, #shipping_product_data').hide();
+                    $('.show_if_variable').show();
+                    $('ul.product_data_tabs li.general_options').addClass('show_if_variable_booking');
+                    $('ul.product_data_tabs li.variations_options').addClass('show_if_variable_booking');
+                    
+                    // Hide person types if they exist
+                    $('.woocommerce_bookings_persons').hide();
+                }
+            } else {
+                $('#_variable_booking').closest('label').hide();
+                $('ul.product_data_tabs li.general_options').removeClass('show_if_variable_booking');
+                $('ul.product_data_tabs li.variations_options').removeClass('show_if_variable_booking');
+            }
         }
         
-        // Update product attributes section
-        if (isBooking && hasVariations) {
-            $('.product_attributes .checkbox_options .show_if_variable').show();
-        } else {
-            $('.product_attributes .checkbox_options .show_if_variable').hide();
-        }
-    }
-    
-    // Run on page load
-    toggleVariationOptions();
-    
-    // Run when product type changes
-    $('#product-type').on('change', toggleVariationOptions);
-    
-    // Run when variable booking option changes
-    $('body').on('change', '#_variable_booking', toggleVariationOptions);
-    
-    // Run after attribute is added
-    $('body').on('woocommerce_added_attribute', function() {
-        setTimeout(toggleVariationOptions, 100);
+        // Toggle variation booking settings when variable booking checkbox is toggled
+        $('#_variable_booking').on('change', function() {
+            if ($(this).is(':checked')) {
+                $('.show_if_variable').show();
+                $('ul.product_data_tabs li.variations_options').show();
+                $('#inventory_product_data, #shipping_product_data').hide();
+            } else {
+                $('.show_if_variable:not(.show_if_booking)').hide();
+                $('ul.product_data_tabs li.variations_options').hide();
+            }
+        });
     });
-});
+    
+})(jQuery);

@@ -1,112 +1,130 @@
 <?php
+/**
+ * Fixes template hooks and compatibility issues
+ */
+
 if (!defined('ABSPATH')) {
     exit;
 }
 
-class HBV_Template_Hook_Fixer {
+class WC_Hotel_Booking_Template_Hook_Fixer {
+    
     public function __construct() {
-        // Remove default booking form hooks
-        add_action('init', array($this, 'remove_all_booking_form_hooks'), 1);
-        add_action('template_redirect', array($this, 'remove_late_hooks'), 1);
+        // Modify add to cart button text
+        add_filter('woocommerce_product_single_add_to_cart_text', array($this, 'change_button_text'), 20, 2);
         
-        // Add our custom placement
-        add_action('woocommerce_after_single_product', array($this, 'add_booking_form_placeholder'), 99);
-        add_filter('wc_get_template', array($this, 'override_booking_templates'), 10, 5);
+        // Filter booking form templates
+        add_filter('wc_get_template', array($this, 'maybe_override_template'), 10, 5);
         
-        // Add front-end DOM manipulation
-        add_action('wp_footer', array($this, 'add_dom_manipulation_script'), 99);
+        // Add AJAX endpoint for checking variation availability
+        add_action('wp_ajax_check_variation_availability', array($this, 'check_variation_availability'));
+        add_action('wp_ajax_nopriv_check_variation_availability', array($this, 'check_variation_availability'));
     }
     
-    public function remove_all_booking_form_hooks() {
-        // Remove standard booking form placements
-        remove_action('woocommerce_before_add_to_cart_button', array('WC_Bookings_Cart', 'booking_form'), 10);
-        remove_action('woocommerce_before_add_to_cart_form', array('WC_Bookings_Cart', 'booking_form'), 10);
-        remove_action('woocommerce_before_variations_form', array('WC_Bookings_Cart', 'booking_form'), 10); 
-        remove_action('woocommerce_after_variations_form', array('WC_Bookings_Cart', 'booking_form'), 10);
-        remove_action('woocommerce_before_single_product', array('WC_Bookings_Cart', 'booking_form'), 10);
-        remove_action('woocommerce_after_single_product', array('WC_Bookings_Cart', 'booking_form'), 10);
+    /**
+     * Change the Add to Cart button text for bookable products
+     */
+    public function change_button_text($text, $product) {
+        if ($product && $product->is_type('booking') && $product->get_meta('_has_variables') === 'yes') {
+            return __('Book Now', 'wc-hotel-booking');
+        }
+        return $text;
     }
     
-    public function remove_late_hooks() {
-        // Run late removals again to catch anything added after init
-        $this->remove_all_booking_form_hooks();
-    }
-    
-    public function add_booking_form_placeholder() {
-        echo '<div id="booking-form-destination" style="display:none;"></div>';
-    }
-    
-    public function override_booking_templates($template, $template_name, $args, $template_path, $default_path) {
-        // Intercept booking form templates
-        if (strpos($template_name, 'booking-form') !== false) {
-            // Return our placeholder template
-            $custom_template = plugin_dir_path(dirname(__FILE__)) . 'templates/booking-form-placeholder.php';
+    /**
+     * Override templates if needed for variable bookings
+     */
+    public function maybe_override_template($template, $template_name, $args, $template_path, $default_path) {
+        if ($template_path !== 'woocommerce-bookings') {
+            return $template;
+        }
+        
+        // Check if we need to override any WooCommerce Bookings templates
+        $override_templates = array(
+            'booking-form/date-picker.php',
+            'booking-form/number-of-persons.php'
+        );
+        
+        if (in_array($template_name, $override_templates)) {
+            $custom_template = plugin_dir_path(dirname(__FILE__)) . 'templates/' . $template_name;
             if (file_exists($custom_template)) {
                 return $custom_template;
             }
         }
+        
         return $template;
     }
     
-    public function add_dom_manipulation_script() {
-        if (!is_product()) {
-            return;
+    /**
+     * AJAX endpoint for checking variation availability
+     */
+    public function check_variation_availability() {
+        if (!isset($_POST['product_id']) || !isset($_POST['variation_id']) || !isset($_POST['quantity'])) {
+            wp_send_json_error();
         }
         
-        global $product;
+        $product_id = absint($_POST['product_id']);
+        $variation_id = absint($_POST['variation_id']);
+        $quantity = absint($_POST['quantity']);
+        $start_date = isset($_POST['start_date']) ? sanitize_text_field($_POST['start_date']) : '';
+        $end_date = isset($_POST['end_date']) ? sanitize_text_field($_POST['end_date']) : '';
+        
+        $product = wc_get_product($product_id);
         if (!$product || !$product->is_type('booking')) {
-            return;
+            wp_send_json_error();
         }
         
-        ?>
-        <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            // Hide booking form elements initially
-            $('.wc-bookings-booking-form-wrapper, .wc-bookings-booking-form, form.cart .wc-bookings-booking-form').css({
-                'display': 'none',
-                'visibility': 'hidden',
-                'opacity': '0'
-            });
+        $variation = wc_get_product($variation_id);
+        if (!$variation) {
+            wp_send_json_error();
+        }
+        
+        // Check stock availability
+        $stock_quantity = $variation->get_stock_quantity();
+        if ($stock_quantity !== null && $quantity > $stock_quantity) {
+            wp_send_json_error(array(
+                'message' => sprintf(__('Only %d room(s) available', 'wc-hotel-booking'), $stock_quantity)
+            ));
+        }
+        
+        // If dates are provided, check booking availability
+        if ($start_date && $end_date) {
+            $booking_form = new WC_Booking_Form($product);
             
-            // Show variations
-            $('.variations_form, #product-variations').css({
-                'display': 'block',
-                'visibility': 'visible',
-                'opacity': '1'
-            });
+            // Convert dates to timestamps
+            $start = strtotime($start_date);
+            $end = strtotime($end_date);
             
-            // Create booking form container if it doesn't exist
-            if ($('#booking-form-container').length === 0) {
-                $('.variations_form').after('<div id="booking-form-container" style="display:none; margin-top:30px;"></div>');
-            }
-            
-            // Show booking form when variation is selected
-            $(document).on('show_variation', function(event, variation) {
-                $('.wc-bookings-booking-form').appendTo('#booking-form-container');
-                $('#booking-form-container').slideDown();
-                $('.wc-bookings-booking-form').css({
-                    'display': 'block',
-                    'visibility': 'visible',
-                    'opacity': '1'
-                });
+            // Check each day in the range
+            $current = $start;
+            while ($current <= $end) {
+                $date_to_check = new WC_DateTime("@$current");
                 
-                $('#wc_hotel_selected_variation').val(variation.variation_id);
+                // Manually check if this date is bookable
+                $is_bookable = apply_filters(
+                    'wc_bookings_is_date_bookable', 
+                    true, 
+                    $date_to_check, 
+                    0, 
+                    $booking_form
+                );
                 
-                // Update booking form
-                if (typeof wc_bookings_booking_form !== 'undefined') {
-                    wc_bookings_booking_form.update();
+                if (!$is_bookable) {
+                    wp_send_json_error(array(
+                        'message' => __('Selected dates are not available for the requested quantity', 'wc-hotel-booking')
+                    ));
                 }
-            });
-            
-            // Hide booking form when variation is hidden
-            $(document).on('hide_variation', function() {
-                $('#booking-form-container').slideUp();
-                $('#wc_hotel_selected_variation').val('');
-            });
-        });
-        </script>
-        <?php
+                
+                // Move to next day
+                $current = strtotime('+1 day', $current);
+            }
+        }
+        
+        wp_send_json_success(array(
+            'message' => __('Rooms available!', 'wc-hotel-booking')
+        ));
     }
 }
 
-new HBV_Template_Hook_Fixer();
+// Initialize the class
+new WC_Hotel_Booking_Template_Hook_Fixer();

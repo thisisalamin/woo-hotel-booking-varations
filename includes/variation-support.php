@@ -1,6 +1,6 @@
 <?php
 /**
- * Handles attribute variation support for booking products
+ * Adds variation support for WooCommerce Bookings products
  */
 
 if (!defined('ABSPATH')) {
@@ -8,116 +8,87 @@ if (!defined('ABSPATH')) {
 }
 
 class WC_Hotel_Booking_Variation_Support {
+    
     public function __construct() {
-        // Enable "Used for variations" checkbox for attributes
-        add_filter('woocommerce_attribute_show_in_variation_options', array($this, 'show_in_variation_options'), 10, 2);
+        // Add variation support to booking products
+        add_filter('product_type_selector', array($this, 'add_variable_booking_product_type'));
+        add_filter('woocommerce_product_class', array($this, 'get_product_class'), 10, 4);
         
-        // Ensure variations panel shows for booking products
-        add_filter('woocommerce_product_data_tabs', array($this, 'modify_product_data_tabs'), 20);
-        add_action('admin_footer', array($this, 'product_type_selector_script'));
+        // Add booking tab to variation data
+        add_action('woocommerce_product_after_variable_attributes', array($this, 'add_booking_fields_to_variations'), 10, 3);
+        add_action('woocommerce_save_product_variation', array($this, 'save_variation_booking_data'), 10, 2);
         
-        // Support saving variation data for booking products
-        add_filter('woocommerce_product_after_variable_attributes', array($this, 'variation_options_booking'), 10, 3);
-        add_filter('woocommerce_available_variation', array($this, 'available_variation_booking'), 10, 3);
-        add_action('woocommerce_save_product_variation', array($this, 'save_variation_booking'), 10, 2);
+        // Add availability check for variations
+        add_filter('woocommerce_booking_get_availability_args', array($this, 'filter_availability_args'), 10, 3);
     }
     
     /**
-     * Show "Used for variations" checkbox for booking products
+     * Add variable booking product type
      */
-    public function show_in_variation_options($show_option, $product_type) {
-        if ($product_type === 'booking') {
-            // Check if product has the variable booking option enabled
-            global $post;
-            if ($post && get_post_meta($post->ID, '_variable_booking', true) === 'yes') {
-                return true;
+    public function add_variable_booking_product_type($types) {
+        $types['variable_booking'] = __('Variable Booking', 'wc-hotel-booking');
+        return $types;
+    }
+    
+    /**
+     * Get appropriate product class for variable booking
+     */
+    public function get_product_class($classname, $product_type, $post_type, $product_id) {
+        if ($product_type === 'variable_booking') {
+            return 'WC_Product_Booking';
+        }
+        return $classname;
+    }
+    
+    /**
+     * Add booking fields to variations for capacity and availability
+     */
+    public function add_booking_fields_to_variations($loop, $variation_data, $variation) {
+        $variation_id = $variation->ID;
+        $booking_capacity = get_post_meta($variation_id, '_wc_booking_max_per_block', true);
+        
+        echo '<div class="booking_variation_data">';
+        echo '<p class="form-row form-row-first">';
+        echo '<label>' . esc_html__('Room Capacity', 'wc-hotel-booking') . '</label>';
+        echo '<input type="number" name="variation_booking_capacity[' . esc_attr($loop) . ']" ' . 
+             'value="' . esc_attr($booking_capacity ? $booking_capacity : 1) . '" ' .
+             'placeholder="' . esc_attr__('Room capacity', 'wc-hotel-booking') . '" ' .
+             'min="1" step="1">';
+        echo '</p>';
+        echo '</div>';
+    }
+    
+    /**
+     * Save variation booking data
+     */
+    public function save_variation_booking_data($variation_id, $loop) {
+        if (isset($_POST['variation_booking_capacity'][$loop])) {
+            $capacity = absint($_POST['variation_booking_capacity'][$loop]);
+            update_post_meta($variation_id, '_wc_booking_max_per_block', $capacity);
+        }
+    }
+    
+    /**
+     * Filter availability arguments to respect variation stock
+     */
+    public function filter_availability_args($args, $product, $resource_id) {
+        if (isset($_POST['wc_hotel_selected_variation']) && $_POST['wc_hotel_selected_variation']) {
+            $variation_id = absint($_POST['wc_hotel_selected_variation']);
+            $variation = wc_get_product($variation_id);
+            
+            if ($variation) {
+                // Adjust availability based on variation stock
+                $stock_quantity = $variation->get_stock_quantity();
+                if ($stock_quantity !== null) {
+                    $args['qty'] = absint(isset($_POST['quantity']) ? $_POST['quantity'] : 1);
+                    $args['variation_id'] = $variation_id;
+                }
             }
         }
-        return $show_option;
-    }
-    
-    /**
-     * Ensure variations tab shows for booking products when needed
-     */
-    public function modify_product_data_tabs($tabs) {
-        // Add a custom class to show variations tab for booking products
-        if (isset($tabs['variations'])) {
-            // Add our custom class that will be used by our JavaScript
-            $tabs['variations']['class'][] = 'show_if_booking_has_variations';
-        }
-        return $tabs;
-    }
-    
-    /**
-     * Add JavaScript to dynamically show/hide variation tab based on product settings
-     */
-    public function product_type_selector_script() {
-        if (!function_exists('get_current_screen')) {
-            return;
-        }
         
-        $screen = get_current_screen();
-        if (!$screen || ($screen->id !== 'product' && $screen->id !== 'edit-product')) {
-            return;
-        }
-        ?>
-        <script type="text/javascript">
-            jQuery(document).ready(function($) {
-                // Function to update variations visibility
-                function updateVariationVisibility() {
-                    var is_booking = $('#product-type').val() === 'booking';
-                    var has_variations = $('#_variable_booking').is(':checked');
-                    
-                    // Show/hide variations tab
-                    if (is_booking && has_variations) {
-                        $('.show_if_booking_has_variations').show();
-                        $('.variations_options').show();
-                    } else if (is_booking) {
-                        $('.show_if_booking_has_variations').hide();
-                        $('.variations_options').hide();
-                    }
-                    
-                    // Show/hide "Used for variations" checkbox in attributes
-                    $('.attribute_options .show_if_variable').toggleClass('show_if_booking', is_booking && has_variations);
-                }
-                
-                // Run when document loads
-                updateVariationVisibility();
-                
-                // Run when product type changes
-                $('#product-type').on('change', updateVariationVisibility);
-                
-                // Run when variable booking checkbox changes
-                $('#_variable_booking').on('change', updateVariationVisibility);
-                
-                // After attribute is added, update the checkboxes visibility
-                $('body').on('woocommerce_added_attribute', updateVariationVisibility);
-            });
-        </script>
-        <?php
-    }
-    
-    /**
-     * Add booking-specific options to variations
-     */
-    public function variation_options_booking($loop, $variation_data, $variation) {
-        // You can add booking-specific variation options here if needed
-    }
-    
-    /**
-     * Modify variation data for booking products
-     */
-    public function available_variation_booking($variation_data, $product, $variation) {
-        return $variation_data;
-    }
-    
-    /**
-     * Save booking-specific variation data
-     */
-    public function save_variation_booking($variation_id, $i) {
-        // Save any booking-specific variation data here
+        return $args;
     }
 }
 
-// Initialize the variation support
+// Initialize the class
 new WC_Hotel_Booking_Variation_Support();
